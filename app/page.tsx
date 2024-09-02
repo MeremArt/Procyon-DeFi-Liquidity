@@ -1,113 +1,254 @@
-import Image from "next/image";
+"use client";
+import React, { useState } from "react";
+import { Container, CircularProgress, Link, Divider } from "@mui/material";
+import {
+  Keypair,
+  SorobanRpc,
+  TransactionBuilder,
+  Asset,
+  Operation,
+  LiquidityPoolAsset,
+  getLiquidityPoolId,
+  BASE_FEE,
+  Networks,
+} from "@stellar/stellar-sdk";
 
-export default function Home() {
+const server = new SorobanRpc.Server("https://soroban-testnet.stellar.org");
+
+const App: React.FC = () => {
+  const [keypair, setKeypair] = useState<Keypair | null>(null);
+  const [log, setLog] = useState<string>("");
+  const [liquidityPoolId, setLiquidityPoolId] = useState<string>("");
+  const [assetName, setAssetName] = useState<string>("");
+  const [tokenAAmount, setTokenAAmount] = useState<string>("");
+  const [tokenBAmount, setTokenBAmount] = useState<string>("");
+  const [withdrawAmount, setWithdrawAmount] = useState<string>("");
+  const [loading, setLoading] = useState({
+    generateKeypair: false,
+    fundAccount: false,
+    createLiquidityPool: false,
+    withdrawFromPool: false,
+  });
+
+  const addLog = (message: string) => {
+    setLog((prevLog) => prevLog + message + "\n");
+  };
+
+  const generateKeypair = () => {
+    setLoading((prev) => ({ ...prev, generateKeypair: true }));
+    const newKeypair = Keypair.random();
+    setKeypair(newKeypair);
+    addLog(`Generated new keypair. Public key: ${newKeypair.publicKey()}`);
+    setLoading((prev) => ({ ...prev, generateKeypair: false }));
+  };
+
+  const fundAccount = async () => {
+    if (!keypair) {
+      addLog("Please generate a keypair first.");
+      return;
+    }
+
+    setLoading((prev) => ({ ...prev, fundAccount: true }));
+    const friendbotUrl = `https://friendbot.stellar.org?addr=${keypair.publicKey()}`;
+    try {
+      const response = await fetch(friendbotUrl);
+      if (response.ok) {
+        addLog(`Account ${keypair.publicKey()} successfully funded.`);
+      } else {
+        addLog(`Something went wrong funding account: ${keypair.publicKey()}.`);
+      }
+    } catch (error: any) {
+      addLog(`Error funding account ${keypair.publicKey()}: ${error.message}`);
+    }
+    setLoading((prev) => ({ ...prev, fundAccount: false }));
+  };
+
+  const createLiquidityPool = async () => {
+    if (!keypair || !assetName || !tokenAAmount || !tokenBAmount) {
+      addLog(
+        "Please ensure you have a keypair, asset name, and token amounts."
+      );
+      return;
+    }
+
+    setLoading((prev) => ({ ...prev, createLiquidityPool: true }));
+    try {
+      const account = await server.getAccount(keypair.publicKey());
+      const customAsset = new Asset(assetName, keypair.publicKey());
+      const lpAsset = new LiquidityPoolAsset(Asset.native(), customAsset, 30);
+      const lpId = getLiquidityPoolId("constant_product", lpAsset).toString(
+        "hex"
+      );
+      setLiquidityPoolId(lpId);
+
+      const transaction = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      })
+        .addOperation(Operation.changeTrust({ asset: lpAsset }))
+        .addOperation(
+          Operation.liquidityPoolDeposit({
+            liquidityPoolId: lpId,
+            maxAmountA: tokenAAmount,
+            maxAmountB: tokenBAmount,
+            minPrice: { n: 1, d: 1 },
+            maxPrice: { n: 1, d: 1 },
+          })
+        )
+        .setTimeout(30)
+        .build();
+
+      transaction.sign(keypair);
+      const result = await server.sendTransaction(transaction);
+      addLog(
+        `Liquidity Pool created. Transaction URL: https://stellar.expert/explorer/testnet/tx/${result.hash}`
+      );
+    } catch (error: any) {
+      addLog(`Error creating Liquidity Pool: ${error.message}`);
+    }
+    setLoading((prev) => ({ ...prev, createLiquidityPool: false }));
+  };
+
+  const withdrawFromPool = async () => {
+    if (!keypair || !liquidityPoolId || !withdrawAmount) {
+      addLog(
+        "Please ensure you have a keypair, liquidity pool ID, and withdrawal amount."
+      );
+      return;
+    }
+
+    setLoading((prev) => ({ ...prev, withdrawFromPool: true }));
+    try {
+      const account = await server.getAccount(keypair.publicKey());
+      const transaction = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      })
+        .addOperation(
+          Operation.liquidityPoolWithdraw({
+            liquidityPoolId: liquidityPoolId,
+            amount: withdrawAmount,
+            minAmountA: "0",
+            minAmountB: "0",
+          })
+        )
+        .setTimeout(30)
+        .build();
+
+      transaction.sign(keypair);
+      const result = await server.sendTransaction(transaction);
+      addLog(
+        `Withdrawal successful. Transaction URL: https://stellar.expert/explorer/testnet/tx/${result.hash}`
+      );
+    } catch (error: any) {
+      addLog(`Error withdrawing from Liquidity Pool: ${error.message}`);
+    }
+    setLoading((prev) => ({ ...prev, withdrawFromPool: false }));
+  };
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="min-h-screen bg-[#252A34] flex flex-col justify-center items-center p-4">
+      <header className="bg-[#08D9D6] w-58 rounded-lg text-center py-4 px-4">
+        <h1 className="text-[#252A34] font-bold text-lg">
+          Procyon DeFi Liquidity Pool
+        </h1>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8 w-full max-w-6xl">
+        <div className=" p-4 rounded-lg border-4 border-[#08D9D6] ">
+          <button
+            className="bg-[#14FFEC] hover:bg-teal-800 mt-8 text-white w-full py-2 rounded-lg"
+            onClick={generateKeypair}
+            disabled={loading.generateKeypair}
           >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+            {loading.generateKeypair ? (
+              <CircularProgress size={24} />
+            ) : (
+              "Generate Keypair"
+            )}
+          </button>
+
+          <button
+            className="bg-[#00712D]  mt-8 mb-2 hover:bg-red-700 text-white w-full py-2 rounded-lg"
+            onClick={fundAccount}
+            disabled={loading.fundAccount}
+          >
+            {loading.fundAccount ? (
+              <CircularProgress size={24} />
+            ) : (
+              "Fund Account"
+            )}
+          </button>
+        </div>
+
+        <div className="bg-[#FF6B6B] p-4 rounded-lg shadow-md">
+          <h2 className="text-xs mb-4 text-black font-bold">
+            Create Liquidity Pool
+          </h2>
+          <input
+            type="text"
+            className="w-full mb-4 p-2 border rounded text-black"
+            placeholder="Asset Name"
+            onChange={(e) => setAssetName(e.target.value)}
+          />
+          <input
+            type="text"
+            className="w-full mb-4 p-2 border rounded text-black"
+            placeholder="Token A Amount"
+            onChange={(e) => setTokenAAmount(e.target.value)}
+          />
+          <input
+            type="text"
+            className="w-full mb-4 p-2 border rounded text-black"
+            placeholder="Token B Amount"
+            onChange={(e) => setTokenBAmount(e.target.value)}
+          />
+          <button
+            className="btn text-white w-full py-2 rounded-lg"
+            onClick={createLiquidityPool}
+            disabled={loading.createLiquidityPool}
+          >
+            {loading.createLiquidityPool ? (
+              <CircularProgress size={24} />
+            ) : (
+              "Create Liquidity Pool"
+            )}
+          </button>
+
+          {liquidityPoolId && (
+            <p className="mt-4 text-sm">Liquidity Pool ID: {liquidityPoolId}</p>
+          )}
+        </div>
+
+        <div className="border-4 border-[#08D9D6] p-4 rounded-lg shadow-md">
+          <h2 className="text-xs mb-4">Withdraw from Pool</h2>
+          <input
+            type="text"
+            className="w-full mb-4 p-2 border rounded text-black"
+            placeholder="Withdrawal Amount"
+            onChange={(e) => setWithdrawAmount(e.target.value)}
+          />
+          <button
+            className="bg-[#800000] hover:bg-blue-800 text-white w-full py-2 rounded-lg"
+            onClick={withdrawFromPool}
+            disabled={loading.withdrawFromPool}
+          >
+            {loading.withdrawFromPool ? (
+              <CircularProgress size={24} />
+            ) : (
+              "Withdraw from Pool"
+            )}
+          </button>
         </div>
       </div>
 
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
+      <div className="bg-[#08D9D6] p-4 rounded-lg shadow-md w-full max-w-6xl mt-8">
+        <h2 className="text-xl mb-4 text-black font-bold">Log</h2>
+        <Divider />
+        <pre className="mt-4 max-h-48 overflow-y-auto text-black">{log}</pre>
       </div>
-
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
+    </div>
   );
-}
+};
+
+export default App;
